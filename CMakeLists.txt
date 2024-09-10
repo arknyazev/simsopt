@@ -39,7 +39,7 @@ set(_HAS_AUTO_PTR_ETC 1)
 configure_file(config.h.in config.h)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-#include(CheckCXXCompilerFlag)
+include(CheckCXXCompilerFlag)
 IF(DEFINED ENV{CI})
     message(STATUS "CI environment detected. Set compilation flags targetting Westmere microarch.")
     #set(CMAKE_CXX_FLAGS "-O3 -march=znver3")
@@ -54,7 +54,7 @@ else()
     CHECK_CXX_COMPILER_FLAG(-march=native COMPILER_SUPPORTS_MARCH_NATIVE)
     if(COMPILER_SUPPORTS_MARCH_NATIVE)
     	set(CMAKE_CXX_FLAGS "-O3 -march=native -mfma -ffp-contract=fast")
-    elseif(${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "arm64")  
+    elseif(${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "arm64")
     	set(CMAKE_CXX_FLAGS "-O3 -mcpu=apple-a14 -mfma -ffp-contract=fast")
     else()
     	set(CMAKE_CXX_FLAGS "-O3 -ffp-contract=fast")
@@ -128,7 +128,7 @@ pybind11_add_module(${PROJECT_NAME}
     src/simsoptpp/regular_grid_interpolant_3d_py.cpp
     src/simsoptpp/curve.cpp src/simsoptpp/curverzfourier.cpp src/simsoptpp/curvexyzfourier.cpp
     src/simsoptpp/surface.cpp src/simsoptpp/surfacerzfourier.cpp src/simsoptpp/surfacexyzfourier.cpp
-    src/simsoptpp/dommaschk.cpp src/simsoptpp/reiman.cpp src/simsoptpp/tracing.cpp 
+    src/simsoptpp/dommaschk.cpp src/simsoptpp/reiman.cpp src/simsoptpp/tracing.cpp
     src/simsoptpp/magneticfield_biotsavart.cpp src/simsoptpp/python_boozermagneticfield.cpp
     src/simsoptpp/boozerradialinterpolant.cpp
     )
