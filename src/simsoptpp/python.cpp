@@ -26,6 +26,7 @@ void init_surfaces(py::module_ &);
 void init_curves(py::module_ &);
 void init_magneticfields(py::module_ &);
 void init_boozermagneticfields(py::module_ &);
+void init_shearalfvenwaves(py::module_ &);
 void init_tracing(py::module_ &);
 void init_distance(py::module_ &);
 
@@ -38,6 +39,7 @@ PYBIND11_MODULE(simsoptpp, m) {
     init_surfaces(m);
     init_magneticfields(m);
     init_boozermagneticfields(m);
+    init_shearalfvenwaves(m);
     init_tracing(m);
     init_distance(m);
 

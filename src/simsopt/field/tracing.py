@@ -8,7 +8,7 @@ import numpy as np
 import simsoptpp as sopp
 from .._core.util import parallel_loop_bounds
 from ..field.magneticfield import MagneticField
-from ..field.boozermagneticfield import BoozerMagneticField
+from ..field.boozermagneticfield import BoozerMagneticField, ShearAlfvenWave
 from ..field.sampling import draw_uniform_on_curve, draw_uniform_on_surface
 from ..geo.surface import SurfaceClassifier
 from ..util.constants import ALPHA_PARTICLE_MASS, ALPHA_PARTICLE_CHARGE, FUSION_ALPHA_PARTICLE_ENERGY
@@ -72,34 +72,16 @@ def gc_to_fullorbit_initial_guesses(field, xyz_inits, speed_pars, speed_total, m
     return xyz_inits_full, v_inits, rgs
 
 
-def trace_particles_boozer_perturbed(field: BoozerMagneticField, stz_inits: RealArray,
+def trace_particles_boozer_perturbed(perturbed_field: ShearAlfvenWave, stz_inits: RealArray,
                            parallel_speeds: RealArray, mus: RealArray, tmax=1e-4,
                            mass=ALPHA_PARTICLE_MASS, charge=ALPHA_PARTICLE_CHARGE, Ekin=FUSION_ALPHA_PARTICLE_ENERGY,
-                           tol=1e-9, abstol=None, reltol=None, comm=None, zetas=[], omegas=[], vpars=[], stopping_criteria=[], mode='gc_vac',
-                           forget_exact_path=False, zetas_stop=False, vpars_stop=False,
-                           Phihat=0, omega=0, Phim=0, Phin=0, phase=0, axis=0):
+                           tol=1e-9, abstol=None, reltol=None, comm=None, zetas=[], omegas=[], vpars=[], stopping_criteria=[],
+                           forget_exact_path=False, zetas_stop=False, vpars_stop=False, axis=0):
     r"""
-    Follow particles in a :class:`BoozerMagneticField`. This is modeled after
+    Follow particles in a perturbed field of class :class:`ShearAlfvenWave`. This is modeled after
     :func:`trace_particles`.
 
-
-    In the case of ``mod='gc_vac'`` we solve the guiding center equations under
-    the vacuum assumption, i.e :math:`G =` const. and :math:`I = 0`:
-
-    .. math::
-
-        \dot s = -|B|_{,\theta} m(v_{||}^2/|B| + \mu)/(q \psi_0)
-
-        \dot \theta = |B|_{,s} m(v_{||}^2/|B| + \mu)/(q \psi_0) + \iota v_{||} |B|/G
-
-        \dot \zeta = v_{||}|B|/G
-
-        \dot v_{||} = -(\iota |B|_{,\theta} + |B|_{,\zeta})\mu |B|/G,
-
-    where :math:`q` is the charge, :math:`m` is the mass, and :math:`v_\perp^2 = 2\mu|B|`.
-
-    In the case of ``mode='gc'`` we solve the general guiding center equations
-    for an MHD equilibrium:
+    Recall that general guiding center equations for an MHD equilibrium are:
 
     .. math::
 
@@ -117,11 +99,24 @@ def trace_particles_boozer_perturbed(field: BoozerMagneticField, stz_inits: Real
 
         D = (F G - C I))/\iota
 
-    where primes indicate differentiation wrt :math:`\psi`. In the case ``mod='gc_noK'``,
-    the above equations are used with :math:`K=0`.
+    where :math:`q` is the charge, :math:`m` is the mass, and :math:`v_\perp^2 = 2\mu|B|`,
+    and where primes indicate differentiation wrt :math:`\psi`. In the current verion ok the code,
+    the above equations are somved under :math:`K=0` assumption. Note also that, for vacuum fields –
+    meaning :math:`G =` const. and :math:`I = 0` – eautions above simplify to
+
+    .. math::
+
+        \dot s = -|B|_{,\theta} m(v_{||}^2/|B| + \mu)/(q \psi_0)
+
+        \dot \theta = |B|_{,s} m(v_{||}^2/|B| + \mu)/(q \psi_0) + \iota v_{||} |B|/G
+
+        \dot \zeta = v_{||}|B|/G
+
+        \dot v_{||} = -(\iota |B|_{,\theta} + |B|_{,\zeta})\mu |B|/G,
+
 
     Args:
-        field: The :class:`BoozerMagneticField` instance
+        perturbed_field: The :class:`ShearAlfvenWave` instance
         stz_inits: A ``(nparticles, 3)`` array with the initial positions of
             the particles in Boozer coordinates :math:`(s,\theta,\zeta)`.
         parallel_speeds: A ``(nparticles, )`` array containing the speed in
@@ -137,11 +132,6 @@ def trace_particles_boozer_perturbed(field: BoozerMagneticField, stz_inits: Real
         stopping_criteria: list of stopping criteria, mostly used in
             combination with the ``LevelsetStoppingCriterion``
             accessed via :obj:`simsopt.field.tracing.SurfaceClassifier`.
-        mode: how to trace the particles. Options are
-            `gc`: general guiding center equations.
-            `gc_vac`: simplified guiding center equations for the case :math:`G` = const.,
-            :math:`I = 0`, and :math:`K = 0`.
-            `gc_noK`: simplified guiding center equations for the case :math:`K = 0`.
         forget_exact_path: return only the first and last position of each
             particle for the ``res_tys``. To be used when only res_zeta_hits is of
             interest or one wants to reduce memory usage.
@@ -164,28 +154,25 @@ def trace_particles_boozer_perturbed(field: BoozerMagneticField, stz_inits: Real
             was hit. If `idx<0`, then `stopping_criteria[int(-idx)-1]` was hit.
     """
     if reltol is None:
-        reltol = tol 
+        reltol = tol
     if abstol is None:
-        abstol = tol 
+        abstol = tol
     nparticles = stz_inits.shape[0]
     assert stz_inits.shape[0] == len(parallel_speeds)
     assert len(mus) == len(parallel_speeds)
     speed_par = parallel_speeds
     m = mass
-    speed_total = sqrt(2*Ekin/m)  # Ekin = 0.5 * m * v^2 <=> v = sqrt(2*Ekin/m)
-    mode = mode.lower()
-    assert mode in ['gc', 'gc_vac', 'gc_nok']
-
+    speed_total = sqrt(2*Ekin/m)
     res_tys = []
     res_zeta_hits = []
     loss_ctr = 0
     first, last = parallel_loop_bounds(comm, nparticles)
     for i in range(first, last):
         res_ty, res_zeta_hit = sopp.particle_guiding_center_boozer_perturbed_tracing(
-            field, stz_inits[i, :], m, charge, speed_total, speed_par[i], mus[i], tmax, abstol, reltol, vacuum=(mode == 'gc_vac'),
-            noK=(mode == 'gc_nok'), zetas=zetas, omegas=omegas, vpars=vpars, stopping_criteria=stopping_criteria,
-            phis_stop=zetas_stop,vpars_stop=vpars_stop, Phihat=Phihat, omega=omega,
-            Phim=Phim, Phin=Phin, phase=phase,forget_exact_path=forget_exact_path,axis=axis)
+            perturbed_field, stz_inits[i, :], m, charge, speed_total, speed_par[i], mus[i], tmax, abstol, reltol,
+            zetas=zetas, omegas=omegas, vpars=vpars, forget_exact_path=forget_exact_path,
+            stopping_criteria=stopping_criteria, phis_stop=zetas_stop, vpars_stop=vpars_stop, axis=axis)
+        print(f'traced particle {i} of {nparticles}')
         if not forget_exact_path:
             res_tys.append(np.asarray(res_ty))
         else:
@@ -262,12 +249,12 @@ def trace_particles_boozer(field: BoozerMagneticField, stz_inits: RealArray,
         mass: particle mass in kg, defaults to the mass of an alpha particle
         charge: charge in Coulomb, defaults to the charge of an alpha particle
         Ekin: kinetic energy in Joule, defaults to 3.52MeV. Either a scalar (assumed
-              same energy for all particles), or ``(nparticles, )`` array. 
+              same energy for all particles), or ``(nparticles, )`` array.
         tol: defualt tolerance for ode solver when solver-specific tolerances are not set
         comm: MPI communicator to parallelize over
         zetas: list of angles in [0, 2pi] for which intersection with the plane
               corresponding to that zeta should be computed
-        TODO omega and vpar 
+        TODO omega and vpar
         stopping_criteria: list of stopping criteria, mostly used in
                            combination with the ``LevelsetStoppingCriterion``
                            accessed via :obj:`simsopt.field.tracing.SurfaceClassifier`.
@@ -286,14 +273,14 @@ def trace_particles_boozer(field: BoozerMagneticField, stz_inits: RealArray,
             default solver (rk45) specific options are
                 `axis`: If `True`, tracing is performed in coordinates :math:`x = \sqrt{s}\cos(\theta)`
                            and :math:`y = \sqrt{s}\sin(\theta)` to avoid a coordinate singularity on
-                           the magnetic axis. If `False`, tracing is performed in :math:`(s,\theta)`. 
+                           the magnetic axis. If `False`, tracing is performed in :math:`(s,\theta)`.
                 `reltol`: relative tolerance for adaptive ode solver
                 `abstol`: absolute tolerance for adaptive ode solver
-            symplectic solver specific options are 
+            symplectic solver specific options are
                 `solveSympl`: using symplectic solver
                 `dt`: time step
                 `roottol`: root solver tolerance
-                `predictor_step`: provide better initial guess for the next time step 
+                `predictor_step`: provide better initial guess for the next time step
                     using predictor steps
 
     Returns: 2 element tuple containing
@@ -322,7 +309,7 @@ def trace_particles_boozer(field: BoozerMagneticField, stz_inits: RealArray,
         warn("No zetas and omegas provided for the zeta stopping critierion", RuntimeWarning)
     if options.get('vpars_stop') and (not len(vpars)):
         warn("No vpars provided for the vpar stopping criterion", RuntimeWarning)
-    
+
     options['phis_stop'] = options.pop('zetas_stop', False)
 
     if options.get('solveSympl'):
@@ -334,7 +321,7 @@ def trace_particles_boozer(field: BoozerMagneticField, stz_inits: RealArray,
         for op in ['dt', 'roottol', 'predictor_step']:
             if options.get(op):
                 warn("RK45 solver does not use option %s" % op, RuntimeWarning)
-                
+
     options.setdefault('roottol', tol)
     options.setdefault('reltol', tol)
     options.setdefault('abstol', tol)
@@ -344,7 +331,7 @@ def trace_particles_boozer(field: BoozerMagneticField, stz_inits: RealArray,
     assert stz_inits.shape[0] == len(parallel_speeds)
     speed_par = parallel_speeds
     m = mass
-    assert np.isscalar(Ekin) or (len(Ekin) == len(parallel_speeds)) 
+    assert np.isscalar(Ekin) or (len(Ekin) == len(parallel_speeds))
     if np.isscalar(Ekin):
         Ekin = Ekin * np.ones((len(parallel_speeds),))
     speed_total = np.sqrt(2*Ekin/m)  # Ekin = 0.5 * m * v^2 <=> v = sqrt(2*Ekin/m)
@@ -451,9 +438,9 @@ def trace_particles(field: MagneticField,
             was hit. If `idx<0`, then `stopping_criteria[int(-idx)-1]` was hit.
     """
     if reltol is None:
-        reltol = tol 
+        reltol = tol
     if abstol is None:
-        abstol = tol 
+        abstol = tol
     nparticles = xyz_inits.shape[0]
     assert xyz_inits.shape[0] == len(parallel_speeds)
     speed_par = parallel_speeds
@@ -539,9 +526,9 @@ def trace_particles_starting_on_curve(curve, field, nparticles, tmax=1e-4,
     Returns: see :mod:`simsopt.field.tracing.trace_particles`
     """
     if reltol is None:
-        reltol = tol 
+        reltol = tol
     if abstol is None:
-        abstol = tol 
+        abstol = tol
     m = mass
     speed_total = sqrt(2*Ekin/m)  # Ekin = 0.5 * m * v^2 <=> v = sqrt(2*Ekin/m)
     np.random.seed(seed)
@@ -599,9 +586,9 @@ def trace_particles_starting_on_surface(surface, field, nparticles, tmax=1e-4,
     Returns: see :mod:`simsopt.field.tracing.trace_particles`
     """
     if reltol is None:
-        reltol = tol 
+        reltol = tol
     if abstol is None:
-        abstol = tol 
+        abstol = tol
     m = mass
     speed_total = sqrt(2*Ekin/m)  # Ekin = 0.5 * m * v^2 <=> v = sqrt(2*Ekin/m)
     np.random.seed(seed)
@@ -882,9 +869,9 @@ def compute_fieldlines(field, R0, Z0, tmax=200, tol=1e-7, abstol=None, reltol=No
     """
     assert len(R0) == len(Z0)
     if reltol is None:
-        reltol = tol 
+        reltol = tol
     if abstol is None:
-        abstol = tol 
+        abstol = tol
     nlines = len(R0)
     xyz_inits = np.zeros((nlines, 3))
     xyz_inits[:, 0] = np.asarray(R0)

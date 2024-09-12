@@ -29,6 +29,12 @@ using namespace boost::numeric::odeint;
 #include <fmt/ranges.h>
 #include <fmt/os.h>
 #include <iomanip>
+
+#include <iostream> // DEBUG: For std::cout
+#include <cstdlib>  // DEBUG: For exit(0)
+#include <xtensor/xio.hpp>  // DEBUG: For printing xtensor objects
+
+
 template<template<class, std::size_t, xt::layout_type> class T>
 class GuidingCenterVacuumRHS {
     /*
@@ -119,14 +125,14 @@ class GuidingCenterVacuumBoozerRHS {
             double s, theta;
             if (axis==1) {
                 s = pow(ys[0],2)+pow(ys[1],2);
-                theta = atan2(ys[1],ys[0]);          
+                theta = atan2(ys[1],ys[0]);
             } else if (axis==2) {
                 s = sqrt(pow(ys[0],2)+pow(ys[1],2));
-                theta = atan2(ys[1],ys[0]); 
+                theta = atan2(ys[1],ys[0]);
             } else {
                 s = ys[0];
                 theta = ys[1];
-            }  
+            }
 
             stz(0, 0) = s;
             stz(0, 1) = theta;
@@ -144,114 +150,20 @@ class GuidingCenterVacuumBoozerRHS {
             double fak1 = m*v_par*v_par/modB + m*mu;
 
             double sdot = -dmodBdtheta*fak1/(q*psi0);
-            double tdot = dmodBds*fak1/(q*psi0) + iota*v_par*modB/G; 
+            double tdot = dmodBds*fak1/(q*psi0) + iota*v_par*modB/G;
 
             if (axis==1) {
                 dydt[0] = sdot*cos(theta)/(2*sqrt(s)) - sqrt(s) * sin(theta) * tdot;
                 dydt[1] = sdot*sin(theta)/(2*sqrt(s)) + sqrt(s) * cos(theta) * tdot;
             } else if (axis==2) {
                 dydt[0] = sdot*cos(theta) - s * sin(theta) * tdot;
-                dydt[1] = sdot*sin(theta) + s * cos(theta) * tdot; 
+                dydt[1] = sdot*sin(theta) + s * cos(theta) * tdot;
             } else {
                 dydt[0] = sdot;
                 dydt[1] = tdot;
             }
             dydt[2] = v_par*modB/G;
             dydt[3] = -(iota*dmodBdtheta + dmodBdzeta)*mu*modB/G;
-        }
-};
-
-template<template<class, std::size_t, xt::layout_type> class T>
-class GuidingCenterVacuumBoozerPerturbedRHS {
-    /*
-     * The state consists of :math:`[s, t, z, v_par]` with
-     *
-     *    \dot s = -|B|_{,\theta} m(v_{||}^2/|B| + \mu)/(q \psi_0)
-     *    \dot \theta = |B|_{,s} m(v_{||}^2/|B| + \mu)/(q \psi_0) + \iota v_{||} |B|/G
-     *    \dot \zeta = v_{||}|B|/G
-     *    \dot v_{||} = -(\iota |B|_{,\theta} + |B|_{,\zeta})\mu |B|/G,
-     *
-     *  where :math:`q` is the charge, :math:`m` is the mass, and :math:`v_\perp = 2\mu|B|`.
-     *
-     */
-    private:
-        typename BoozerMagneticField<T>::Tensor2 stz = xt::zeros<double>({1, 3});
-        shared_ptr<BoozerMagneticField<T>> field;
-        double m, q, mu, Phihat, omega, phase;
-        int Phim, Phin;
-    public:
-        int axis;
-        static constexpr int Size = 5;
-        using State = std::array<double, Size>;
-
-        GuidingCenterVacuumBoozerPerturbedRHS(shared_ptr<BoozerMagneticField<T>> field,
-            double m, double q, double mu, double Phihat, double omega, int Phim,
-            int Phin, double phase, int axis)
-            : field(field), m(m), q(q), mu(mu), Phihat(Phihat), omega(omega),
-              Phim(Phim), Phin(Phin), phase(phase), axis(axis) {
-            }
-
-        void operator()(const State &ys, array<double, 5> &dydt,
-                const double t) {
-            double v_par = ys[3];
-            double time = ys[4];
-            double s, theta;
-            if (axis==1) {
-                s = pow(ys[0],2)+pow(ys[1],2);
-                theta = atan2(ys[1],ys[0]);          
-            } else if (axis==2) {
-                s = sqrt(pow(ys[0],2)+pow(ys[1],2));
-                theta = atan2(ys[1],ys[0]); 
-            } else {
-                s = ys[0];
-                theta = ys[1];
-            }  
-
-            stz(0, 0) = s;
-            stz(0, 1) = theta;
-            stz(0, 2) = ys[2];
-
-            field->set_points(stz);
-            auto psi0 = field->psi0;
-            double modB = field->modB_ref()(0);
-            double G = field->G_ref()(0);
-            double iota = field->iota_ref()(0);
-            double diotadpsi = field->diotads_ref()(0)/psi0;
-            double dmodBdpsi = field->modB_derivs_ref()(0)/psi0;
-            double dmodBdtheta = field->modB_derivs_ref()(1);
-            double dmodBdzeta = field->modB_derivs_ref()(2);
-            double v_perp2 = 2*mu*modB;
-            double fak1 = m*v_par*v_par/modB + m*mu;
-            double Phi = Phihat * sin(Phim * theta - Phin * ys[2] + omega * time + phase);
-            double dPhidpsi = 0;
-            double Phidot = Phihat * omega * cos(Phim * theta - Phin * ys[2] + omega * time + phase);
-            double dPhidtheta = Phidot * Phim / omega;
-            double dPhidzeta = - Phidot * Phin / omega;
-            double alpha = - Phi * (iota*Phim - Phin)/(omega*G);
-            double alphadot = - Phidot * (iota*Phim - Phin)/(omega*G);
-            double dalphadtheta = - dPhidtheta * (iota*Phim - Phin)/(omega*G);
-            double dalphadzeta = - dPhidzeta * (iota*Phim - Phin)/(omega*G);
-            double dalphadpsi = - dPhidpsi * (iota*Phim - Phin)/(omega*G) \
-                - Phi * (diotadpsi*Phim)/(omega*G);
-
-            double sdot = (-dmodBdtheta*fak1/q + dalphadtheta*modB*v_par - dPhidtheta)/psi0;
-            double tdot = dmodBdpsi*fak1/q + (iota - dalphadpsi*G)*v_par*modB/G + dPhidpsi;
-            if (axis==1) {
-                dydt[0] = sdot*cos(theta)/(2*sqrt(s)) - sqrt(s) * sin(theta) * tdot;
-                dydt[1] = sdot*sin(theta)/(2*sqrt(s)) + sqrt(s) * cos(theta) * tdot;
-            } else if (axis==2) {
-                dydt[0] = sdot*cos(theta) - s * sin(theta) * tdot;
-                dydt[1] = sdot*sin(theta) + s * cos(theta) * tdot; 
-            } else {
-                dydt[0] = sdot;
-                dydt[1] = tdot;
-            }
-            dydt[2] = v_par*modB/G;
-            dydt[3] = -modB/(G*m) * (m*mu*(dmodBdzeta + dalphadtheta*dmodBdpsi*G \
-                    + dmodBdtheta*(iota - dalphadpsi*G)) + q*(alphadot*G \
-                    + dalphadtheta*G*dPhidpsi + (iota - dalphadpsi*G)*dPhidtheta + dPhidzeta)) \
-                    + v_par/modB * (dmodBdtheta*dPhidpsi - dmodBdpsi*dPhidtheta);
-            dydt[4] = 1;
         }
 };
 
@@ -270,20 +182,17 @@ class GuidingCenterNoKBoozerPerturbedRHS {
      *
      */
     private:
-        typename BoozerMagneticField<T>::Tensor2 stz = xt::zeros<double>({1, 3});
-        shared_ptr<BoozerMagneticField<T>> field;
-        double m, q, mu, Phihat, omega, phase;
-        int Phim, Phin;
+        typename ShearAlfvenWave<T>::Tensor2 stzt = xt::zeros<double>({1, 4});
+        shared_ptr<ShearAlfvenWave<T>> perturbed_field;
+        double m, q, mu;
     public:
         int axis;
         static constexpr int Size = 5;
         using State = std::array<double, Size>;
 
-        GuidingCenterNoKBoozerPerturbedRHS(shared_ptr<BoozerMagneticField<T>> field,
-            double m, double q, double mu, double Phihat, double omega, int Phim,
-            int Phin, double phase, int axis)
-            : field(field), m(m), q(q), mu(mu), Phihat(Phihat), omega(omega),
-              Phim(Phim), Phin(Phin), phase(phase), axis(axis) {
+        GuidingCenterNoKBoozerPerturbedRHS(shared_ptr<ShearAlfvenWave<T>> perturbed_field,
+            double m, double q, double mu, int axis)
+            : perturbed_field(perturbed_field), m(m), q(q), mu(mu), axis(axis) {
             }
 
         void operator()(const State &ys, array<double, 5> &dydt,
@@ -293,20 +202,23 @@ class GuidingCenterNoKBoozerPerturbedRHS {
             double s, theta;
             if (axis==1) {
                 s = pow(ys[0],2)+pow(ys[1],2);
-                theta = atan2(ys[1],ys[0]);          
+                theta = atan2(ys[1],ys[0]);
             } else if (axis==2) {
                 s = sqrt(pow(ys[0],2)+pow(ys[1],2));
-                theta = atan2(ys[1],ys[0]); 
+                theta = atan2(ys[1],ys[0]);
             } else {
                 s = ys[0];
                 theta = ys[1];
-            }  
+            }
 
-            stz(0, 0) = s;
-            stz(0, 1) = theta;
-            stz(0, 2) = ys[2];
+            stzt(0, 0) = s;
+            stzt(0, 1) = theta;
+            stzt(0, 2) = ys[2];
+            stzt(0, 3) = ys[4];
 
-            field->set_points(stz);
+            auto field = perturbed_field->get_B0();
+            perturbed_field->set_points(stzt);
+
             auto psi0 = field->psi0;
             double modB = field->modB_ref()(0);
             double G = field->G_ref()(0);
@@ -320,19 +232,18 @@ class GuidingCenterNoKBoozerPerturbedRHS {
             double dmodBdzeta = field->modB_derivs_ref()(2);
             double v_perp2 = 2*mu*modB;
             double fak1 = m*v_par*v_par/modB + m*mu;
-            double Phi = Phihat * sin(Phim * theta - Phin * ys[2] + omega * time + phase);
-            double dPhidpsi = 0;
-            double Phidot = Phihat * omega * cos(Phim * theta - Phin * ys[2] + omega * time + phase);
-            double dPhidtheta = Phidot * Phim / omega;
-            double dPhidzeta = - Phidot * Phin / omega;
-            double alpha = - Phi * (iota*Phim - Phin)/(omega*(G+iota*I));
-            double alphadot = - Phidot * (iota*Phim - Phin)/(omega*(G+iota*I));
-            double dalphadtheta = - dPhidtheta * (iota*Phim - Phin)/(omega*(G+iota*I));
-            double dalphadzeta = -dPhidzeta * (iota*Phim - Phin)/(omega*(G+iota*I));
-            double dalphadpsi = - dPhidpsi * (iota*Phim - Phin)/(omega*(G+iota*I)) \
-                - (Phi/omega) * (diotadpsi*Phim/(G+iota*I) \
-                - (iota*Phim - Phin)/((G+iota*I)*(G+iota*I)) * (dGdpsi + diotadpsi*I + iota*dIdpsi));
-            double denom = q*(G + I*(-alpha*dGdpsi + iota) + alpha*G*dIdpsi) + m*v_par/modB * (-dGdpsi*I + G*dIdpsi); // q G in vacuum
+            double Phi = perturbed_field->Phi_ref()(0);
+            double Phidot = perturbed_field->Phidot_ref()(0);
+            double dPhidpsi = perturbed_field->dPhidpsi_ref()(0);
+            double dPhidtheta = perturbed_field->dPhidtheta_ref()(0);
+            double dPhidzeta = perturbed_field->dPhidzeta_ref()(0);
+            double alpha = perturbed_field->alpha_ref()(0);
+            double alphadot = perturbed_field->alphadot_ref()(0);
+            double dalphadpsi = perturbed_field->dalphadpsi_ref()(0);
+            double dalphadtheta = perturbed_field->dalphadtheta_ref()(0);
+            double dalphadzeta = perturbed_field->dalphadzeta_ref()(0);
+
+            double denom = q*(G + I*(-alpha*dGdpsi + iota) + alpha*G*dIdpsi) + m*v_par/modB * (-dGdpsi*I + G*dIdpsi); // q*G in vacuum
 
             double sdot = (-G*dPhidtheta*q + I*dPhidzeta*q + modB*q*v_par*(dalphadtheta*G-dalphadzeta*I) + (-dmodBdtheta*G + dmodBdzeta*I)*fak1)/(denom*psi0);
             double tdot = (G*q*dPhidpsi + modB*q*v_par*(-dalphadpsi*G - alpha*dGdpsi + iota) - dGdpsi*m*v_par*v_par \
@@ -342,7 +253,7 @@ class GuidingCenterNoKBoozerPerturbedRHS {
                 dydt[1] = sdot*sin(theta)/(2*sqrt(s)) + sqrt(s) * cos(theta) * tdot;
             } else if (axis==2) {
                 dydt[0] = sdot*cos(theta) - s * sin(theta) * tdot;
-                dydt[1] = sdot*sin(theta) + s * cos(theta) * tdot; 
+                dydt[1] = sdot*sin(theta) + s * cos(theta) * tdot;
             } else {
                 dydt[0] = sdot;
                 dydt[1] = tdot;
@@ -359,6 +270,12 @@ class GuidingCenterNoKBoozerPerturbedRHS {
                       + dmodBdpsi*(I*dPhidzeta - G*dPhidtheta)) \
                       + v_par*(m*mu*(dmodBdtheta*dGdpsi - dmodBdzeta*dIdpsi) \
                       + q*(alphadot*(dGdpsi*I-G*dIdpsi) + dGdpsi*dPhidtheta - dIdpsi*dPhidzeta)))/denom;
+            /* in vacuum, G = const and I = 0, so the equations above simplify to:
+               dydt[2] = v_par*modB/G
+               dydt[3] = - modB/(G*m) * (m*mu*(dmodBdzeta + dalphadtheta*dmodBdpsi*G \
+                         + dmodBdtheta*(iota - dalphadpsi*G)) + q*(alphadot*G \
+                         + dalphadtheta*G*dPhidpsi + (iota - dalphadpsi*G)*dPhidtheta + dPhidzeta)) \
+                         + v_par/modB * (dmodBdtheta*dPhidpsi - dmodBdpsi*dPhidtheta); */
             dydt[4] = 1;
         }
 };
@@ -398,14 +315,14 @@ class GuidingCenterNoKBoozerRHS {
             double s, theta;
             if (axis==1) {
                 s = pow(ys[0],2)+pow(ys[1],2);
-                theta = atan2(ys[1],ys[0]);          
+                theta = atan2(ys[1],ys[0]);
             } else if (axis==2) {
                 s = sqrt(pow(ys[0],2)+pow(ys[1],2));
-                theta = atan2(ys[1],ys[0]); 
+                theta = atan2(ys[1],ys[0]);
             } else {
                 s = ys[0];
                 theta = ys[1];
-            }  
+            }
             stz(0, 0) = s;
             stz(0, 1) = theta;
             stz(0, 2) = ys[2];
@@ -433,7 +350,7 @@ class GuidingCenterNoKBoozerRHS {
                 dydt[1] = sdot*sin(theta)/(2*sqrt(s)) + sqrt(s) * cos(theta) * tdot;
             } else if (axis==2) {
                 dydt[0] = sdot*cos(theta) - s * sin(theta) * tdot;
-                dydt[1] = sdot*sin(theta) + s * cos(theta) * tdot; 
+                dydt[1] = sdot*sin(theta) + s * cos(theta) * tdot;
             } else {
                 dydt[0] = sdot;
                 dydt[1] = tdot;
@@ -479,14 +396,14 @@ class GuidingCenterBoozerRHS {
             double s, theta;
             if (axis==1) {
                 s = pow(ys[0],2)+pow(ys[1],2);
-                theta = atan2(ys[1],ys[0]);          
+                theta = atan2(ys[1],ys[0]);
             } else if (axis==2) {
                 s = sqrt(pow(ys[0],2)+pow(ys[1],2));
-                theta = atan2(ys[1],ys[0]); 
+                theta = atan2(ys[1],ys[0]);
             } else {
                 s = ys[0];
                 theta = ys[1];
-            }  
+            }
             stz(0, 0) = s;
             stz(0, 1) = theta;
             stz(0, 2) = ys[2];
@@ -519,7 +436,7 @@ class GuidingCenterBoozerRHS {
                 dydt[1] = sdot*sin(theta)/(2*sqrt(s)) + sqrt(s) * cos(theta) * tdot;
             } else if (axis==2) {
                 dydt[0] = sdot*cos(theta) - s * sin(theta) * tdot;
-                dydt[1] = sdot*sin(theta) + s * cos(theta) * tdot; 
+                dydt[1] = sdot*sin(theta) + s * cos(theta) * tdot;
             } else {
                 dydt[0] = sdot;
                 dydt[1] = tdot;
@@ -649,7 +566,7 @@ solve(RHS rhs, typename RHS::State y, double tmax, double dt, double dtmax, doub
     vector<double> phis, vector<double> omegas, vector<shared_ptr<StoppingCriterion>> stopping_criteria,
     vector<double> vpars, bool phis_stop=false, bool vpars_stop=false, bool flux=false,
     bool forget_exact_path=false) {
-    
+
     if (phis.size() > 0 && omegas.size() == 0) {
         omegas.insert(omegas.end(), phis.size(), 0.);
     } else if (phis.size() !=  omegas.size()) {
@@ -703,8 +620,8 @@ solve(RHS rhs, typename RHS::State y, double tmax, double dt, double dtmax, doub
         double t_last = std::get<0>(step);
         double t_current = std::get<1>(step);
         dt = t_current - t_last;
-        stop = check_stopping_criteria(rhs, y, iter, res, res_phi_hits, dense, t_last, t_current, phi_last, phi_current, vpar_last, 
-                                vpar_current, abstol, phis, omegas, stopping_criteria, vpars, phis_stop, vpars_stop, 
+        stop = check_stopping_criteria(rhs, y, iter, res, res_phi_hits, dense, t_last, t_current, phi_last, phi_current, vpar_last,
+                                vpar_current, abstol, phis, omegas, stopping_criteria, vpars, phis_stop, vpars_stop,
                                 flux, forget_exact_path);
         phi_last = phi_current;
         vpar_last = vpar_current;
@@ -718,15 +635,15 @@ solve(RHS rhs, typename RHS::State y, double tmax, double dt, double dtmax, doub
         } else if (rhs.axis==2) {
             ykeep[0] = sqrt(pow(y[0],2) + pow(y[1],2));
             ykeep[1] = atan2(y[1],y[0]);
-        }      
+        }
         res.push_back(join<1, RHS::Size>({tmax}, ykeep));
     }
     return std::make_tuple(res, res_phi_hits);
 }
 
 template<class RHS, class DENSE>
-bool check_stopping_criteria(RHS rhs, typename RHS::State y, int iter, vector<array<double, RHS::Size+1>> &res, vector<array<double, RHS::Size+2>> &res_phi_hits, 
-    DENSE dense, double t_last, double t_current, double phi_last, double phi_current, double vpar_last, 
+bool check_stopping_criteria(RHS rhs, typename RHS::State y, int iter, vector<array<double, RHS::Size+1>> &res, vector<array<double, RHS::Size+2>> &res_phi_hits,
+    DENSE dense, double t_last, double t_current, double phi_last, double phi_current, double vpar_last,
     double vpar_current, double abstol, vector<double> phis, vector<double> omegas, vector<shared_ptr<StoppingCriterion>> stopping_criteria,
     vector<double> vpars, bool phis_stop, bool vpars_stop, bool flux, bool forget_exact_path)
 {
@@ -741,7 +658,7 @@ bool check_stopping_criteria(RHS rhs, typename RHS::State y, int iter, vector<ar
     array<double, RHS::Size> ykeep = {};
     double dt = t_current - t_last;
 
-    
+
     if (flux) {
     // Now check whether we have hit any of the vpar planes
         for (int i = 0; i < vpars.size(); ++i) {
@@ -848,7 +765,7 @@ class SymplField
     double dAtheta[3], dAzeta[3];
     double dhtheta[3], dhzeta[3];
     double dmodB[3];
- 
+
 
     // H = vpar^2/2 + mu B
     // vpar = (pzeta - q Azeta)/(m hzeta)
@@ -994,7 +911,7 @@ int f_euler_quasi_func(const gsl_vector* x, void* p, gsl_vector* f)
     const double dt = (params->dt);
     auto z = (params->z);
     SymplField<T> field = (params->f);
-    
+
     const double x0 = gsl_vector_get(x,0);
     const double x1 = gsl_vector_get(x,1);
 
@@ -1024,7 +941,7 @@ int f_euler_quasi_exact(const gsl_vector* x, void* p, gsl_vector* f)
     const double ptheta_old = (params->ptheta_old);
     auto z = (params->z);
     SymplField<T> field = (params->f);
-    
+
     const double x0 = gsl_vector_get(x,0);
 
     field.eval_field(x0, z[1], z[2]);
@@ -1045,7 +962,7 @@ int f_midpoint_quasi_func(const gsl_vector* x, void* p, gsl_vector* f)
     const double dt = (params->dt);
     auto z = (params->z);
     SymplField<T> field = (params->f);
-    
+
     // s, theta, zeta, pzeta
     const double x0 = gsl_vector_get(x,0);
     const double x1 = gsl_vector_get(x,1);
@@ -1058,9 +975,9 @@ int f_midpoint_quasi_func(const gsl_vector* x, void* p, gsl_vector* f)
     field.get_derivatives(0.5*(x3 + z[3]));
 
     const double f1 = field.dptheta[0]*(x1 - z[1]) - dt*field.H[0]; // theta
-    const double f2 = field.dptheta[0]*(x2 - z[2])*field.hzeta 
+    const double f2 = field.dptheta[0]*(x2 - z[2])*field.hzeta
             - dt*(field.dptheta[0]*field.vpar - field.dH[0]*field.htheta); // zeta
-    const double f3 = field.dptheta[0]*(x3 - z[3]) 
+    const double f3 = field.dptheta[0]*(x3 - z[3])
             + dt*(field.dH[2]*field.dptheta[0] - field.dH[0]*field.dptheta[2]); // pzeta
     const double f4 = field.dptheta[0]*(field.ptheta - ptheta_old)
           + 0.5*dt*(field.dH[1]*field.dptheta[0] - field.dH[0]*field.dptheta[1]); // ptheta
@@ -1084,7 +1001,7 @@ int f_midpoint_quasi_func(const gsl_vector* x, void* p, gsl_vector* f)
 double cubic_hermite_interp(double t_last, double t_current, double y_last, double y_current, double dy_last, double dy_current, double t)
 {
     double dt = t_current - t_last;
-    return (3*dt*pow(t-t_last,2) - 2*pow(t-t_last,3))/pow(dt,3) * y_current 
+    return (3*dt*pow(t-t_last,2) - 2*pow(t-t_last,3))/pow(dt,3) * y_current
             + (pow(dt,3)-3*dt*pow(t-t_last,2)+2*pow(t-t_last,3))/pow(dt,3) * y_last
             + pow(t-t_last,2)*(t-t_current)/pow(dt,2) * dy_current
             + (t-t_last)*pow(t-t_current,2)/pow(dt,2) * dy_last;
@@ -1093,14 +1010,14 @@ double cubic_hermite_interp(double t_last, double t_current, double y_last, doub
 template<template<class, std::size_t, xt::layout_type> class T>
 struct sympl_dense {
     // for interpolation
-    array<double, 2> bracket_s = {}; 
+    array<double, 2> bracket_s = {};
     array<double, 2> bracket_dsdt = {};
-    array<double, 2> bracket_theta = {}; 
-    array<double, 2> bracket_dthdt = {}; 
-    array<double, 2> bracket_zeta = {}; 
+    array<double, 2> bracket_theta = {};
+    array<double, 2> bracket_dthdt = {};
+    array<double, 2> bracket_zeta = {};
     array<double, 2> bracket_dzedt = {};
-    array<double, 2> bracket_vpar = {}; 
-    array<double, 2> bracket_dvpardt = {}; 
+    array<double, 2> bracket_vpar = {};
+    array<double, 2> bracket_dvpardt = {};
     typedef typename SymplField<T>::State State;
 
     double tlast = 0.0;
@@ -1162,7 +1079,7 @@ solve_sympl(SymplField<T> f, typename SymplField<T>::State y, double tmax, doubl
 
     State  z = {}; // s, theta, zeta, pzeta
     // y = [s, theta, zeta, vpar]
-        
+
     // Translate y to z
     // y = [s, theta, zeta, vpar]
     // z = [s, theta, zeta, pzeta]
@@ -1289,7 +1206,7 @@ solve_sympl(SymplField<T> f, typename SymplField<T>::State y, double tmax, doubl
         // assert(f.get_dthdt()==dydt[1]);
         // assert(f.get_dzedt()==dydt[2]);
         // assert(f.get_dvpardt()==dydt[3]);
-                
+
         // // predictor step test
         // total_root_iter += root_iter;
         if (predictor_step) {
@@ -1306,8 +1223,8 @@ solve_sympl(SymplField<T> f, typename SymplField<T>::State y, double tmax, doubl
         double phi_current = y[2];
         double vpar_current = y[3];
 
-        stop = check_stopping_criteria(f, y, iter, res, res_phi_hits, dense, t_last, t_current, phi_last, phi_current, vpar_last, 
-                                vpar_current, abstol, phis, omegas, stopping_criteria, vpars, phis_stop, vpars_stop, 
+        stop = check_stopping_criteria(f, y, iter, res, res_phi_hits, dense, t_last, t_current, phi_last, phi_current, vpar_last,
+                                vpar_current, abstol, phis, omegas, stopping_criteria, vpars, phis_stop, vpars_stop,
                                 flux, forget_exact_path);
 
         t_last = t_current;
@@ -1358,22 +1275,25 @@ particle_guiding_center_tracing(
 template<template<class, std::size_t, xt::layout_type> class T>
 tuple<vector<array<double, 6>>, vector<array<double, 7>>>
 particle_guiding_center_boozer_perturbed_tracing(
-        shared_ptr<BoozerMagneticField<T>> field, array<double, 3> stz_init,
-        double m, double q, double vtotal, double vtang, double mu, double tmax, double abstol, double reltol,
-        bool vacuum, bool noK, vector<double> zetas, vector<double> omegas,
-        vector<shared_ptr<StoppingCriterion>> stopping_criteria,
-        bool phis_stop, bool vpars_stop, double Phihat, double omega, int Phim,
-        int Phin, double phase, bool forget_exact_path, int axis, vector<double> vpars)
+    shared_ptr<ShearAlfvenWave<T>> perturbed_field,  // Make sure to use T, not xt::pytensor here
+    array<double, 3> stz_init, double m, double q, double vtotal, double vtang, double mu, double tmax, double abstol, double reltol,
+    vector<double> zetas, vector<double> omegas,
+    vector<shared_ptr<StoppingCriterion>> stopping_criteria,
+    bool phis_stop, bool vpars_stop, bool forget_exact_path, int axis, vector<double> vpars)
 {
-    typename BoozerMagneticField<T>::Tensor2 stz({{stz_init[0], stz_init[1], stz_init[2]}});
-    field->set_points(stz);
+    // Initialize equilibrium field from the perturbed_field's B0
+    auto field = perturbed_field->get_B0();
+
+    typename ShearAlfvenWave<T> :: Tensor2 stzt({{stz_init[0], stz_init[1], stz_init[2], 0.0}});
+    perturbed_field->set_points(stzt);
+
     double modB = field->modB()(0);
     array<double, 5> y;
     double G0 = std::abs(field->G()(0));
     double r0 = G0/modB;
     double dtmax = r0*0.5*M_PI/vtotal; // can at most do quarter of a revolution per step
     double dt = 1e-3 * dtmax; // initial guess for first timestep, will be adjusted by adaptive timestepper
-    
+
     if (axis==1) {
       y = {sqrt(stz_init[0]) * cos(stz_init[1]), sqrt(stz_init[0]) * sin(stz_init[1]), stz_init[2], vtang, 0};
     } else if (axis==2) {
@@ -1381,17 +1301,10 @@ particle_guiding_center_boozer_perturbed_tracing(
     } else {
       y = {stz_init[0], stz_init[1], stz_init[2], vtang, 0};
     }
-    if (vacuum) {
-      auto rhs_class = GuidingCenterVacuumBoozerPerturbedRHS<T>(field, m, q, mu, Phihat, omega,
-        Phim, Phin, phase, axis);
-      return solve(rhs_class, y, tmax, dt, dtmax, abstol, reltol, zetas, omegas, stopping_criteria,
-        vpars, phis_stop, vpars_stop, true, forget_exact_path);
-  } else {
-      auto rhs_class = GuidingCenterNoKBoozerPerturbedRHS<T>(field, m, q, mu, Phihat, omega,
-        Phim, Phin, phase, axis);
-      return solve(rhs_class, y, tmax, dt, dtmax, abstol, reltol, zetas, omegas, stopping_criteria,
-        vpars, phis_stop, vpars_stop, true, forget_exact_path);
-  }
+
+    auto rhs_class = GuidingCenterNoKBoozerPerturbedRHS<T>(perturbed_field, m, q, mu, axis);
+    return solve(rhs_class, y, tmax, dt, dtmax, abstol, reltol, zetas, omegas, stopping_criteria,
+      vpars, phis_stop, vpars_stop, true, forget_exact_path);
 }
 
 template<template<class, std::size_t, xt::layout_type> class T>
@@ -1421,7 +1334,7 @@ particle_guiding_center_boozer_tracing(
     if (dt<0) {
         throw std::invalid_argument("dt needs to be positive.");
     }
-    
+
     if (axis==1) {
       y = {sqrt(stz_init[0]) * cos(stz_init[1]), sqrt(stz_init[0]) * sin(stz_init[1]), stz_init[2], vtang};
     } else if (axis==2) {
@@ -1460,19 +1373,18 @@ particle_guiding_center_boozer_tracing(
           auto rhs_class = GuidingCenterBoozerRHS<T>(field, m, q, mu, axis);
           return solve(rhs_class, y, tmax, dt, dtmax, abstol, reltol, zetas, omegas, stopping_criteria,
             vpars, phis_stop, vpars_stop, true, forget_exact_path);
-        } 
+        }
     }
 }
 
 template
 tuple<vector<array<double, 6>>, vector<array<double, 7>>>
 particle_guiding_center_boozer_perturbed_tracing<xt::pytensor>(
-        shared_ptr<BoozerMagneticField<xt::pytensor>> field, array<double, 3> stz_init,
-        double m, double q, double vtotal, double vtang, double mu, double tmax, double abstol, double reltol,
-        bool vacuum, bool noK, vector<double> zetas, vector<double> omegas,
-        vector<shared_ptr<StoppingCriterion>> stopping_criteria,
-        bool phis_stop, bool vpars_stop, double Phihat,
-        double omega, int Phim, int Phin, double phase, bool forget_exact_path, int axis, vector<double> vpars);
+    shared_ptr<ShearAlfvenWave<xt::pytensor>> perturbed_field,
+    array<double, 3> stz_init, double m, double q, double vtotal, double vtang, double mu, double tmax, double abstol, double reltol,
+    vector<double> zetas, vector<double> omegas,
+    vector<shared_ptr<StoppingCriterion>> stopping_criteria,
+    bool phis_stop, bool vpars_stop, bool forget_exact_path, int axis, vector<double> vpars);
 
 template
 tuple<vector<array<double, 5>>, vector<array<double, 6>>>
