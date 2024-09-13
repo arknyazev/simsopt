@@ -110,12 +110,33 @@ class CMakeBuild(build_ext):
             # ["cmake", "--build", ".", "--target", "simsoptpp"] + build_args, cwd=ext.sourcedir+"/build" # for debug
         )
 
+def get_git_branch():
+    """Get Git branch name of the simsopt module.
+    Useful for keeping track of what simsopt version is used."""
+    try:
+        # Run the Git command to get the current branch
+        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip().decode('utf-8')
+        return branch
+    except Exception as e:
+        print(f"Error retrieving Git branch: {e}")
+        return "unknown"
+
 
 def my_local_scheme(version: setuptools_scm.version.ScmVersion) -> str:
-    """My local node and date version."""
+    """Custom local version scheme that includes the branch name."""
     node_and_date = setuptools_scm.version.get_local_node_and_date(version)
     dirty = ".dirty" if version.dirty else ""
-    return str(node_and_date) + dirty
+
+    # Get the current branch and format it for inclusion in the version
+    branch = get_git_branch()
+    if branch != "unknown":
+        branch_info = f".{branch}"
+    else:
+        branch_info = ""
+
+    return f"{node_and_date}{branch_info}{dirty}"
+
+
 
 version = setuptools_scm.get_version(
     write_to=Path(".") / "src" / "simsopt" / "_version.py",
