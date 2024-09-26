@@ -791,8 +791,10 @@ protected:
   * @param dPhidtheta Tensor to be filled with the computed values.
   */
   void _dPhidtheta_impl(Tensor2 &dPhidtheta) override {
-    xt::view(dPhidtheta, xt::all(), 0) =
-        this->Phidot_ref()(0) * (this->Phim / this->omega);
+      // Squeeze the second dimension to convert {npoints, 1} to {npoints} for the required tensor:
+      auto Phidot_values = xt::squeeze(this->Phidot_ref(), 1);
+      xt::view(dPhidtheta, xt::all(), 0) =
+          Phidot_values * (this->Phim / this->omega);
   }
 
   /**
@@ -801,8 +803,10 @@ protected:
   * @param dPhidzeta Tensor to be filled with the computed values.
   */
   void _dPhidzeta_impl(Tensor2 &dPhidzeta) override {
-    xt::view(dPhidzeta, xt::all(), 0) =
-        -this->Phidot_ref()(0) * (this->Phin / this->omega);
+      // Squeeze the second dimension to convert {npoints, 1} to {npoints} for the required tensor:
+      auto Phidot_values = xt::squeeze(this->Phidot_ref(), 1);
+      xt::view(dPhidzeta, xt::all(), 0) =
+          -Phidot_values * (this->Phin / this->omega);
   }
 
   /**
@@ -832,11 +836,13 @@ protected:
   * @param alpha Tensor to be filled with the computed vector potential parameter values.
   */
   void _alpha_impl(Tensor2 &alpha) override {
-    xt::view(alpha, xt::all(), 0) =
-        -this->Phi_ref()(0) *
-        ((this->B0->iota_ref()(0) * this->Phim - this->Phin) /
-         (this->omega * (this->B0->G_ref()(0) +
-                         this->B0->iota_ref()(0) * this->B0->I_ref()(0))));
+    // Squeeze the second dimension to convert {npoints, 1} to {npoints} for all required tensors:
+    auto phi = xt::squeeze(this->Phi_ref(), 1);
+    auto iota_ref = xt::squeeze(this->B0->iota_ref(), 1);
+    auto G_ref = xt::squeeze(this->B0->G_ref(), 1);
+    auto I_ref = xt::squeeze(this->B0->I_ref(), 1);
+    xt::view(alpha, xt::all(), 0) = -phi * ((iota_ref * this->Phim - this->Phin) /
+                                            (this->omega * (G_ref + iota_ref * I_ref)));
   }
 
   /**
@@ -847,11 +853,13 @@ protected:
   * @param alphadot Tensor to be filled with the computed time derivative values.
   */
   void _alphadot_impl(Tensor2 &alphadot) override {
-    xt::view(alphadot, xt::all(), 0) =
-        -this->Phidot_ref()(0) *
-        ((this->B0->iota_ref()(0) * this->Phim - this->Phin) /
-         (this->omega * (this->B0->G_ref()(0) +
-                         this->B0->iota_ref()(0) * this->B0->I_ref()(0))));
+      // Squeeze the second dimension to convert {npoints, 1} to {npoints} for all required tensors.
+      auto phidot = xt::squeeze(this->Phidot_ref(), 1);
+      auto iota_ref = xt::squeeze(this->B0->iota_ref(), 1);
+      auto G_ref = xt::squeeze(this->B0->G_ref(), 1);
+      auto I_ref = xt::squeeze(this->B0->I_ref(), 1);
+      xt::view(alphadot, xt::all(), 0) = -phidot * ((iota_ref * this->Phim - this->Phin) /
+                                                    (this->omega * (G_ref + iota_ref * I_ref)));
   }
 
   /**
@@ -863,26 +871,27 @@ protected:
   * @param dalphadpsi Tensor to be filled with the computed values.
   */
   void _dalphadpsi_impl(Tensor2 &dalphadpsi) override {
-    const auto &diotadpsi_values = this->B0->diotads_ref()(0) / this->B0->psi0;
-    const auto &dGdpsi_values = this->B0->dGds_ref()(0) / this->B0->psi0;
-    const auto &dIdpsi_values = this->B0->dIds_ref()(0) / this->B0->psi0;
-    const auto &iota_values = this->B0->iota_ref()(0);
-    const auto &G_values = this->B0->G_ref()(0);
-    const auto &I_values = this->B0->I_ref()(0);
-    const auto &dPhidpsi_values = this->dPhidpsi_ref()(0);
-    const auto &Phi_values = this->Phi_ref()(0);
+      // Squeeze the second dimension to convert {npoints, 1} to {npoints} for all required tensors:
+      auto diotadpsi_values = xt::squeeze(this->B0->diotads_ref(), 1) / this->B0->psi0;
+      auto dGdpsi_values = xt::squeeze(this->B0->dGds_ref(), 1) / this->B0->psi0;
+      auto dIdpsi_values = xt::squeeze(this->B0->dIds_ref(), 1) / this->B0->psi0;
+      auto iota_values = xt::squeeze(this->B0->iota_ref(), 1);
+      auto G_values = xt::squeeze(this->B0->G_ref(), 1);
+      auto I_values = xt::squeeze(this->B0->I_ref(), 1);
+      auto dPhidpsi_values = xt::squeeze(this->dPhidpsi_ref(), 1);
+      auto Phi_values = xt::squeeze(this->Phi_ref(), 1);
 
-    xt::view(dalphadpsi, xt::all(), 0) =
-        -dPhidpsi_values * (iota_values * this->Phim - this->Phin) /
-            (this->omega * (G_values + iota_values * I_values)) -
-        (Phi_values / this->omega) *
-            (diotadpsi_values * this->Phim /
-                 (G_values + iota_values * I_values) -
-             (iota_values * this->Phim - this->Phin) /
-                 ((G_values + iota_values * I_values) *
-                  (G_values + iota_values * I_values)) *
-                 (dGdpsi_values + diotadpsi_values * I_values +
-                  iota_values * dIdpsi_values));
+      xt::view(dalphadpsi, xt::all(), 0) =
+          -dPhidpsi_values * (iota_values * this->Phim - this->Phin) /
+              (this->omega * (G_values + iota_values * I_values)) -
+          (Phi_values / this->omega) *
+              (diotadpsi_values * this->Phim /
+                   (G_values + iota_values * I_values) -
+               (iota_values * this->Phim - this->Phin) /
+                   ((G_values + iota_values * I_values) *
+                    (G_values + iota_values * I_values)) *
+                   (dGdpsi_values + diotadpsi_values * I_values +
+                    iota_values * dIdpsi_values));
   }
 
   /**
@@ -891,13 +900,15 @@ protected:
   * @param dalphadtheta Tensor to be filled with the computed values.
   */
   void _dalphadtheta_impl(Tensor2 &dalphadtheta) override {
-    const auto &iota_values = this->B0->iota_ref()(0);
-    const auto &G_values = this->B0->G_ref()(0);
-    const auto &I_values = this->B0->I_ref()(0);
-    const auto &dPhidtheta_values = this->dPhidtheta_ref()(0);
-    xt::view(dalphadtheta, xt::all(), 0) =
-        -dPhidtheta_values * (iota_values * this->Phim - this->Phin) /
-        (this->omega * (G_values + iota_values * I_values));
+      // Squeeze the second dimension to convert {npoints, 1} to {npoints} for all required tensors:
+      auto iota_values = xt::squeeze(this->B0->iota_ref(), 1);
+      auto G_values = xt::squeeze(this->B0->G_ref(), 1);
+      auto I_values = xt::squeeze(this->B0->I_ref(), 1);
+      auto dPhidtheta_values = xt::squeeze(this->dPhidtheta_ref(), 1);
+
+      xt::view(dalphadtheta, xt::all(), 0) =
+          -dPhidtheta_values * (iota_values * this->Phim - this->Phin) /
+          (this->omega * (G_values + iota_values * I_values));
   }
 
   /**
@@ -906,13 +917,15 @@ protected:
   * @param dalphadzeta Tensor to be filled with the computed values.
   */
   void _dalphadzeta_impl(Tensor2 &dalphadzeta) override {
-    const auto &iota_values = this->B0->iota_ref()(0);
-    const auto &G_values = this->B0->G_ref()(0);
-    const auto &I_values = this->B0->I_ref()(0);
-    const auto &dPhidzeta_values = this->dPhidzeta_ref()(0);
-    xt::view(dalphadzeta, xt::all(), 0) =
-        -dPhidzeta_values * (iota_values * this->Phim - this->Phin) /
-        (this->omega * (G_values + iota_values * I_values));
+      // Squeeze the second dimension to convert {npoints, 1} to {npoints} for all required tensors:
+      auto iota_values = xt::squeeze(this->B0->iota_ref(), 1);
+      auto G_values = xt::squeeze(this->B0->G_ref(), 1);
+      auto I_values = xt::squeeze(this->B0->I_ref(), 1);
+      auto dPhidzeta_values = xt::squeeze(this->dPhidzeta_ref(), 1);
+
+      xt::view(dalphadzeta, xt::all(), 0) =
+          -dPhidzeta_values * (iota_values * this->Phim - this->Phin) /
+          (this->omega * (G_values + iota_values * I_values));
   }
 
 public:
