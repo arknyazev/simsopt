@@ -218,7 +218,9 @@ void init_shearalfvenwaves(py::module_ &m) {
       .def(py::init<const std::vector<double> &, const std::vector<double> &>(),
            py::arg("s_values"), py::arg("Phihat_values"))
       .def("__call__", &Phihat::operator(), py::arg("s"))
-      .def("derivative", &Phihat::derivative, py::arg("s"));
+      .def("derivative", &Phihat::derivative, py::arg("s"))
+      .def("get_s_basis", &Phihat::get_s_basis,
+        "Returns the basis of s_values used in linear interpolation of Phihat instance.");
   register_common_shear_alfven_field_methods<PyShearAlfvenWave>(mf);
 
   // Register ShearAlfvenHarmonic class
@@ -234,7 +236,7 @@ void init_shearalfvenwaves(py::module_ &m) {
            }),
            py::arg("s_values"), py::arg("Phihat_values"), py::arg("Phim"),
            py::arg("Phin"), py::arg("omega"), py::arg("phase"),
-           py::arg("B0field"))  // Order matches C++ constructor
+           py::arg("B0field"))
       .def(py::init([](const Phihat &phihat, int Phim, int Phin,
                        double omega, double phase,
                        std::shared_ptr<PyBoozerMagneticField> B0field) {
@@ -248,7 +250,9 @@ void init_shearalfvenwaves(py::module_ &m) {
       .def_readwrite("omega", &PyShearAlfvenHarmonic::omega)
       .def_readwrite("phase", &PyShearAlfvenHarmonic::phase)
       .def_property_readonly("B0", &PyShearAlfvenHarmonic::get_B0,
-              "Returns the equilibrium field B0. Modification is not allowed.");
+              "Returns the equilibrium field B0. Modification is not allowed.")
+      .def_property_readonly("Phihat", &PyShearAlfvenHarmonic::get_phihat,
+                    "Returns the Phihat object. Modification is not allowed.");
 
   // Register PyShearAlfvenWavesSuperposition class
   py::class_<PyShearAlfvenWavesSuperposition,
